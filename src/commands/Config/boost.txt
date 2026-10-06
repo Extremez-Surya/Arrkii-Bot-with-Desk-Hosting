@@ -1,0 +1,111 @@
+const { EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, Collector } = require('discord.js');
+const PremiumServer = require("../../schema/premium-server");
+const PremiumUser = require('../../schema/premium-user');
+
+module.exports = {
+  name: 'boost',
+  description: 'Boost or remove boost from the server.',
+  category: 'Config',
+  args: false,
+  usage: "Boost Server",
+  userPerms: [],
+  owner: false,
+  execute: async (message, args, client) => {
+      const premiumUser = await PremiumUser.findOne({ userID: message.author.id, clientID: client.user.id });
+      if (!premiumUser) {
+        const embed = new EmbedBuilder()
+          .setColor(client.color)
+          .setTitle('Premium Info')
+          .setDescription(`You need a premium subscription to boost the server.`);
+        return await message.reply({ embeds: [embed] });
+      }
+
+      const existingBoost = await PremiumServer.findOne({ Guild: message.guild.id, UserId: message.author.id });
+
+      const otherBoost = await PremiumServer.findOne({ Guild: { $ne: message.guild.id }, UserId: message.author.id });
+      if (otherBoost) {
+        const embed = new EmbedBuilder()
+          .setColor(client.color)
+          .setTitle('Premium Info')
+          .setDescription(`You have already boosted another server. You can only boost one server at a time.`);
+        return await message.reply({ embeds: [embed] });
+      }
+
+      if (existingBoost) {
+        const embed = new EmbedBuilder()
+          .setColor(client.color)
+          .setTitle('Premium Info')
+          .setDescription(`You have already boosted this server. Do you want to remove your boost?`);
+
+        const row = new ActionRowBuilder().addComponents([
+          new ButtonBuilder().setCustomId('boost-remove').setLabel('Remove Boost').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('boost-nope').setLabel('No!').setStyle(ButtonStyle.Danger),
+        ]);
+
+        const msg = await message.reply({ embeds: [embed], components: [row] });
+
+        const collector = await msg.createMessageComponentCollector({
+          filter: (i) => i.user.id === message.author.id,
+        });
+
+        collector.on('collect', async (i) => {
+          if (i.customId === 'boost-remove') {
+            await PremiumServer.findOneAndDelete({ Guild: message.guild.id, UserId: message.author.id });
+            const embed = new EmbedBuilder()
+              .setColor(client.color)
+              .setTitle('Success')
+              .setDescription(`You have successfully removed your boost from the server.`);
+            i.update({ embeds: [embed], components: [] });
+          } else if(i.customId === 'boost-nope') {
+              collector.stop
+              msg.delete();
+          }
+        });
+
+      } else {
+        const embed = new EmbedBuilder()
+          .setDescription(`Do You Really Wanna Boost ?`)
+          .setColor(client.color);
+
+        const row = new ActionRowBuilder().addComponents([
+          new ButtonBuilder().setCustomId('boost-confirm').setLabel('Yes!').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('boost-nope').setLabel('No!').setStyle(ButtonStyle.Danger)
+        ]);
+        const rowd = new ActionRowBuilder().addComponents([
+          new ButtonBuilder().setCustomId('boost-confirm').setLabel('Yes!').setStyle(ButtonStyle.Success).setDisabled(true),
+          new ButtonBuilder().setCustomId('boost-nope').setLabel('No!').setStyle(ButtonStyle.Danger).setDisabled(true)
+        ]);
+
+        const msg = await message.reply({ embeds: [embed], components: [row] });
+
+        const collector = await msg.createMessageComponentCollector({
+          filter: (i) => i.user.id === message.author.id,
+        });
+
+        collector.on('collect', async (i) => {
+          if (i.customId === 'boost-confirm') {
+            const newBoost = new PremiumServer({
+              Guild: message.guild.id,
+              UserId: message.author.id,
+              BoostedAt: new Date(),
+              clientID: client.user.id,
+              boostLeft: 0,
+            });
+            await newBoost.save();
+
+            const embed = new EmbedBuilder()
+              .setColor(client.color)
+              .setTitle('Success')
+              .setDescription(`You have successfully boosted the server.`);
+            i.update({ embeds: [embed], components: [rowd] });
+          } else if (i.customId === 'boost-nope') {
+            const embed = new EmbedBuilder()
+              .setColor(client.color)
+              .setTitle('Success')
+              .setDescription(`You have cancelled boosted the server.`);
+            i.update({ embeds: [embed], components: [rowd] });
+          }
+        });
+      }
+      }
+    }
